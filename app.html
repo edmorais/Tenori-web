@@ -1,0 +1,421 @@
+<title>Tenori·Loop</title>
+<meta name="description" content="A 16×16 matrix looping instrument with four layers, six voices, twelve scales and a tempo-locked echo.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Martian+Mono:wght@400;600&family=Saira+Semi+Condensed:wght@500;600;700&display=swap">
+<style>
+/* Layout: a single instrument body. Portrait stacks display, matrix and deck;
+   landscape puts the matrix beside a tabbed deck; a large desktop window
+   shows every control page at once. One dark hardware look, by design. */
+:root {
+  --room:      #0b0d11;
+  --body-hi:   #3a404b;      /* machined magnesium, lit edge */
+  --body:      #262b33;
+  --body-lo:   #171a20;
+  --well:      #06080b;      /* recesses: matrix window, display, fader slots */
+  --ink:       #cfd7e4;      /* silkscreen */
+  --ink-dim:   #7b869a;
+  --vfd:       #57e0c8;      /* the LÖVE build's accent, now a VFD */
+  --vfd-dim:   #1f5a51;
+  --mute:      #ff5a6e;
+  --led-off:   #2b2f37;
+  --l1: #ffb24c; --l2: #56d8ff; --l3: #ff6fc0; --l4: #9bff7a;
+  --cap-hi:    #4a515d;
+  --cap:       #30353e;
+  --cap-lo:    #1d2127;
+
+  --f-label: "Saira Semi Condensed", "Arial Narrow", "Roboto Condensed", system-ui, sans-serif;
+  --f-disp:  "Martian Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --m: 360px;                /* matrix side, set by layout() */
+  --gut: 16px;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: radial-gradient(120% 90% at 50% 0%, #161a21 0%, var(--room) 60%) fixed, var(--room);
+  color: var(--ink);
+  font-family: var(--f-label);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+button { font: inherit; color: inherit; }
+
+.stage {
+  min-height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  padding-inline: var(--gut); padding-block: 12px;
+}
+
+/* ------------------------------------------------------------ the body */
+.device {
+  position: relative;
+  width: 100%;
+  display: grid; gap: 12px;
+  padding: 26px 14px 14px;   /* the top margin carries the engraved name */
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,0) 18%),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.012) 0 1px, rgba(0,0,0,.012) 1px 3px),
+    linear-gradient(180deg, var(--body) 0%, var(--body-lo) 100%);
+  border: 1px solid #08090c;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.14),
+    inset 0 -1px 0 rgba(0,0,0,.5),
+    inset 1px 0 0 rgba(255,255,255,.04),
+    0 1px 0 #000, 0 24px 60px -18px rgba(0,0,0,.85), 0 8px 18px rgba(0,0,0,.45);
+}
+.screw {
+  position: absolute; width: 9px; height: 9px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #8a919c, #3a3f47 55%, #1b1e23);
+  box-shadow: 0 1px 0 rgba(255,255,255,.08), inset 0 0 0 1px rgba(0,0,0,.4);
+}
+.screw::after { content: ""; position: absolute; left: 1px; right: 1px; top: 4px; height: 1px; background: rgba(0,0,0,.6); transform: rotate(var(--r, 30deg)); }
+.screw.tl { top: 6px; left: 6px; } .screw.tr { top: 6px; right: 6px; --r: -50deg }
+.screw.bl { bottom: 6px; left: 6px; --r: 80deg } .screw.br { bottom: 6px; right: 6px; --r: 10deg }
+
+/* port: one column; land: matrix beside the deck; desk: matrix beside open deck */
+.device[data-layout="port"] { grid-template-columns: minmax(0,1fr); grid-template-areas: "top" "matrix" "deck"; max-width: 560px; }
+.device[data-layout="land"] { grid-template-columns: var(--m) minmax(0,1fr); grid-template-areas: "matrix top" "matrix deck"; grid-template-rows: auto 1fr; max-width: 1240px; }
+.device[data-layout="desk"] { grid-template-columns: var(--m) minmax(0,1fr); grid-template-areas: "top top" "matrix deck"; max-width: 1500px; }
+
+/* ------------------------------------------------------------ top strip */
+.top { grid-area: top; display: grid; grid-template-columns: minmax(0,1fr) auto; grid-template-areas: "disp play"; align-items: stretch; gap: 12px; min-width: 0; }
+.display { grid-area: disp; } .key.play { grid-area: play; }
+/* the name, engraved small in the case's top margin, as on the hardware */
+.brand { position: absolute; top: 8px; left: 24px; right: 24px; display: flex; justify-content: space-between; align-items: baseline;
+  pointer-events: none; font-weight: 600; font-size: 10px; letter-spacing: .32em; line-height: 1;
+  color: #8a94a6; text-shadow: 0 1px 0 rgba(255,255,255,.07), 0 -1px 0 rgba(0,0,0,.75); }
+.brand small { font-size: 8.5px; letter-spacing: .26em; color: #5f697a; font-weight: 600; }
+
+.display {
+  min-width: 0; position: relative;
+  display: grid; grid-template-columns: minmax(0,1fr) auto; grid-template-rows: auto auto; gap: 2px 10px;
+  align-items: center;
+  padding: 7px 12px 6px;
+  border-radius: 9px;
+  background: radial-gradient(140% 120% at 50% 0%, #0b1a18, #040807 70%);
+  border: 1px solid #000;
+  box-shadow: inset 0 2px 6px rgba(0,0,0,.9), inset 0 0 0 1px rgba(87,224,200,.06), 0 1px 0 rgba(255,255,255,.08);
+  font-family: var(--f-disp); color: var(--vfd);
+  text-shadow: 0 0 6px rgba(87,224,200,.55);
+  overflow: hidden;
+}
+.display::after { /* glass */
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(160deg, rgba(255,255,255,.07), rgba(255,255,255,0) 42%),
+              repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 3px);
+}
+.rd-main { font-size: 12px; letter-spacing: .04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.rd-main b { font-weight: 600; }
+.rd-tempo { grid-row: 1 / span 2; grid-column: 2; display: flex; align-items: baseline; gap: 5px; font-variant-numeric: tabular-nums; }
+.rd-tempo .big { font-size: 26px; font-weight: 600; line-height: 1; }
+.rd-tempo .unit { font-size: 9px; color: var(--vfd); opacity: .75; letter-spacing: .1em; }
+.rd-sub { overflow: hidden; display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 10px; letter-spacing: .06em; white-space: nowrap; }
+.rd-sub canvas { flex: 1; min-width: 40px; height: 18px; }
+.rd-msg { color: var(--vfd); opacity: .9; overflow: hidden; text-overflow: ellipsis; }
+.rd-msg.bad { color: var(--mute); text-shadow: 0 0 6px rgba(255,90,110,.6); }
+.ann { opacity: .22; } .ann.on { opacity: 1; }
+
+/* ------------------------------------------------------------ keys */
+.key {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 38px; padding: 0 12px;
+  border-radius: 7px;
+  border: 1px solid #07080a;
+  background: linear-gradient(180deg, var(--cap-hi) 0%, var(--cap) 46%, var(--cap-lo) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.16), inset 0 -2px 3px rgba(0,0,0,.35),
+              0 2px 0 #090a0d, 0 3px 6px rgba(0,0,0,.45);
+  font-family: var(--f-label); font-weight: 600; font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+  color: #dbe2ec; text-shadow: 0 -1px 0 rgba(0,0,0,.6);
+  cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: manipulation;
+  transition: transform .04s, box-shadow .04s;
+}
+.key:hover { background: linear-gradient(180deg, #535b68 0%, #353b45 46%, #1f2329 100%); }
+.key:active, .key.pressed { transform: translateY(2px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08), inset 0 2px 4px rgba(0,0,0,.45), 0 0 0 #090a0d, 0 1px 2px rgba(0,0,0,.5); }
+.key:focus-visible, .fader:focus-visible, .pk:focus-visible, #grid:focus-visible { outline: 2px solid var(--vfd); outline-offset: 2px; }
+.key[disabled] { opacity: .45; cursor: default; }
+.led {
+  width: 7px; height: 7px; border-radius: 50%; flex: none;
+  background: radial-gradient(circle at 40% 35%, #3b4049, var(--led-off));
+  box-shadow: inset 0 1px 1px rgba(0,0,0,.7), 0 1px 0 rgba(255,255,255,.06);
+  --lc: var(--vfd);
+}
+.lit > .led, .led.on {
+  background: radial-gradient(circle at 40% 35%, #fff 0%, var(--lc) 45%, color-mix(in srgb, var(--lc) 60%, #000) 100%);
+  box-shadow: 0 0 6px var(--lc), 0 0 14px color-mix(in srgb, var(--lc) 55%, transparent);
+}
+.key.latched { background: linear-gradient(180deg, #2b3038 0%, #22262d 50%, #1a1d22 100%);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.03), 0 1px 0 rgba(255,255,255,.06); transform: translateY(1px); }
+
+.key.play { min-width: 92px; min-height: 46px; font-size: 13px; flex-direction: column; gap: 4px; padding: 6px 14px; }
+.key.play .led { --lc: #6dff8f; }
+.key.play svg { width: 16px; height: 16px; }
+
+/* ------------------------------------------------------------ matrix */
+.matrix { grid-area: matrix; display: flex; justify-content: center; align-items: flex-start; }
+.bezel {
+  width: var(--m); max-width: 100%; aspect-ratio: 1;
+  padding: calc(var(--m) * .018);
+  border-radius: 16px;
+  background: linear-gradient(145deg, #1a1d23, #0e1014);
+  box-shadow: inset 0 2px 3px rgba(0,0,0,.8), inset 0 -1px 0 rgba(255,255,255,.07),
+              0 1px 0 rgba(255,255,255,.09), 0 -1px 0 rgba(0,0,0,.6);
+}
+#grid { display: block; width: 100%; height: 100%; border-radius: 11px; touch-action: none; cursor: crosshair; }
+
+/* ------------------------------------------------------------ deck */
+.deck { grid-area: deck; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.layers { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)) auto; gap: 8px; }
+.lkey { flex-direction: column; gap: 3px; min-height: 50px; padding: 4px 6px; }
+.lkey .num { font-size: 17px; line-height: 1; font-weight: 700; letter-spacing: 0; }
+.lkey .sub { font-size: 9.5px; letter-spacing: .12em; color: var(--ink-dim); }
+.lkey .leds { position: absolute; inset: 6px 6px auto 6px; display: flex; justify-content: space-between; pointer-events: none; }
+.lkey .leds .led { width: 6px; height: 6px; }
+.lkey .leds .m { --lc: var(--mute); }
+.lkey.latched .num { color: var(--lc); text-shadow: 0 0 10px color-mix(in srgb, var(--lc) 60%, transparent); }
+.mkey { min-width: 64px; flex-direction: column; gap: 4px; font-size: 11px; }
+.mkey .led { --lc: var(--mute); }
+
+.tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; padding: 3px; border-radius: 9px; background: var(--well);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,.8), 0 1px 0 rgba(255,255,255,.07); }
+.tab { min-height: 34px; border: 0; background: transparent; border-radius: 6px; font-weight: 600; font-size: 11.5px; letter-spacing: .16em;
+  color: var(--ink-dim); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.tab .led { width: 5px; height: 5px; }
+.tab[aria-selected="true"] { color: #e6ecf4; background: linear-gradient(180deg, #3b424d, #2a2f37); box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 1px 2px rgba(0,0,0,.6); }
+.tab[aria-selected="true"] .led { background: var(--vfd); box-shadow: 0 0 5px var(--vfd); }
+
+.panels { display: grid; gap: 10px; min-width: 0; }
+.device[data-layout="desk"] .tabs { display: none; }
+.device[data-layout="desk"] .panels { grid-template-columns: minmax(0,1fr) minmax(0,1fr); align-content: start; }
+.device:not([data-layout="desk"]) .panel:not(.on) { display: none; }
+
+.panel {
+  position: relative; min-width: 0;
+  padding: 22px 12px 12px;
+  border-radius: 11px;
+  background: linear-gradient(180deg, rgba(255,255,255,.025), rgba(0,0,0,.08));
+  border: 1px solid rgba(0,0,0,.55);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 1px 0 rgba(255,255,255,.04);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.panel > h2 { /* silkscreened group title, bracketed */
+  position: absolute; top: 6px; left: 12px; right: 12px; margin: 0;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 10px; font-weight: 600; letter-spacing: .24em; color: var(--ink-dim);
+}
+.panel > h2::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, rgba(123,134,154,.45), rgba(123,134,154,0)); }
+.row { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; }
+.row > * { flex: 1 1 0; min-width: 0; }
+
+.waves { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 7px; }
+.wkey { min-height: 44px; flex-direction: column; gap: 2px; font-size: 10.5px; padding: 4px 4px; }
+.wkey svg { width: 30px; height: 14px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; opacity: .85; }
+.wkey.latched { color: var(--lc); text-shadow: 0 0 8px color-mix(in srgb, var(--lc) 60%, transparent); }
+.wkey .led { position: absolute; top: 5px; right: 5px; width: 5px; height: 5px; }
+
+.stepper { display: grid; grid-template-columns: auto minmax(0,1fr) auto; gap: 6px; align-items: stretch; }
+.stepper .key { min-width: 46px; padding: 0; font-size: 15px; }
+.lcd { display: flex; flex-direction: column; justify-content: center; align-items: center; min-width: 0; padding: 3px 8px;
+  border-radius: 6px; background: radial-gradient(140% 120% at 50% 0%, #0b1a18, #040807 70%); border: 1px solid #000;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.07);
+  font-family: var(--f-disp); color: var(--vfd); text-shadow: 0 0 6px rgba(87,224,200,.5); white-space: nowrap; overflow: hidden; }
+.lcd small { font-family: var(--f-label); font-size: 9px; letter-spacing: .2em; color: var(--vfd-dim); text-shadow: none; font-weight: 600; }
+.lcd span { font-size: 13px; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
+/* faders: a slot in the panel with a ridged cap riding in it */
+.fader { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 4px 10px; align-items: center; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; border-radius: 6px; }
+.fader .lab { font-size: 10.5px; font-weight: 600; letter-spacing: .18em; color: var(--ink); }
+.fader output { font-family: var(--f-disp); font-size: 11.5px; color: var(--vfd); text-shadow: 0 0 6px rgba(87,224,200,.45); font-variant-numeric: tabular-nums; }
+.slot { grid-column: 1 / -1; position: relative; height: 30px; }
+.slot::before { /* the slot */
+  content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 8px; margin-top: -4px; border-radius: 4px;
+  background: var(--well); box-shadow: inset 0 2px 3px rgba(0,0,0,.95), 0 1px 0 rgba(255,255,255,.08);
+}
+.slot::after { /* printed scale */
+  content: ""; position: absolute; left: 10px; right: 10px; bottom: 0; height: 4px;
+  background: repeating-linear-gradient(90deg, rgba(123,134,154,.5) 0 1px, transparent 1px calc(10% - .1px));
+}
+.slot .fill { position: absolute; left: 2px; top: 50%; height: 2px; margin-top: -1px; border-radius: 1px; background: var(--vfd); opacity: .55; box-shadow: 0 0 6px var(--vfd); }
+.slot .capf {
+  position: absolute; top: 2px; width: 22px; height: 24px; margin-left: -11px; border-radius: 4px;
+  background:
+    repeating-linear-gradient(90deg, rgba(0,0,0,.35) 0 1px, rgba(255,255,255,.06) 1px 2px, transparent 2px 4px) center / 12px 14px no-repeat,
+    linear-gradient(180deg, #59616e, #343a43 55%, #22262c);
+  border: 1px solid #07080a;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 2px 0 #090a0d, 0 3px 5px rgba(0,0,0,.5);
+}
+.slot .capf::after { content: ""; position: absolute; left: 50%; top: 2px; bottom: 2px; width: 2px; margin-left: -1px; background: var(--vfd); opacity: .8; border-radius: 1px; box-shadow: 0 0 4px var(--vfd); }
+
+/* the KEY selector is a little keyboard */
+.piano { position: relative; height: 64px; display: flex; border-radius: 6px; padding: 4px; background: var(--well);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.07); }
+.pk { position: relative; border: 1px solid #07080a; cursor: pointer; padding: 0; display: flex; align-items: flex-end; justify-content: center;
+  font-family: var(--f-label); font-size: 10px; font-weight: 700; padding-bottom: 4px; touch-action: manipulation; }
+.pk.w { flex: 1; height: 100%; margin-right: -1px; border-radius: 0 0 4px 4px;
+  background: linear-gradient(180deg, #c9ced6, #eef1f5 30%, #dfe3e9); color: #4a5260; box-shadow: inset 0 -3px 0 #b6bcc6, 0 1px 1px rgba(0,0,0,.4); }
+.pk.b { position: absolute; top: 4px; height: 58%; width: 9%; margin-left: -4.5%; z-index: 2; border-radius: 0 0 3px 3px;
+  background: linear-gradient(180deg, #1c1f24, #2f343c 85%, #3c424b); color: #8b94a3; font-size: 8px;
+  box-shadow: inset 0 -3px 0 #101216, 0 2px 2px rgba(0,0,0,.6); }
+.pk.on.w { background: linear-gradient(180deg, #a6efe2, #d9fbf5 40%, #c3f3ea); color: #0d4a40; box-shadow: inset 0 -1px 0 #8fd9cb, 0 0 10px rgba(87,224,200,.6); }
+.pk.on.b { background: linear-gradient(180deg, #0e3b35, #1f7a6c 85%, #2fa391); color: #d9fbf5; box-shadow: 0 0 10px rgba(87,224,200,.7); }
+
+.slots { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 7px; }
+.skey { min-height: 40px; font-size: 14px; letter-spacing: 0; font-weight: 700; }
+.skey .led { position: absolute; top: 5px; right: 5px; width: 5px; height: 5px; }
+.skey.armed { color: #ffd38a; }
+.key.save.lit .led { --lc: #ffb24c; }
+textarea {
+  width: 100%; min-height: 110px; resize: vertical; padding: 8px; border-radius: 6px; border: 1px solid #000;
+  background: #040807; color: var(--vfd); font: 11px/1.25 var(--f-disp); box-shadow: inset 0 2px 4px rgba(0,0,0,.9);
+}
+.subhead { margin: 2px 0 -4px; display: flex; align-items: center; gap: 8px; font-size: 10px; font-weight: 600; letter-spacing: .24em; color: var(--ink-dim); }
+.subhead::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, rgba(123,134,154,.45), rgba(123,134,154,0)); }
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.row > .stepper.ex, .row > .seg { flex: 1 1 140px; }
+.seg .key { white-space: nowrap; }
+.seg .key { padding: 0 6px; font-size: 10.5px; letter-spacing: .1em; gap: 5px; }
+.seg .key .led { width: 5px; height: 5px; }
+.key.wav { min-height: 44px; }
+.key.wav .led { --lc: #ff5a6e; }
+.key.wav.lit { color: #ffb3bd; }
+.note { margin: 0; font-size: 11px; color: var(--ink-dim); letter-spacing: .02em; line-height: 1.4; }
+.help { font-size: 10.5px; color: var(--ink-dim); letter-spacing: .04em; line-height: 1.5; margin: 0; }
+.help kbd { font-family: var(--f-disp); font-size: 9.5px; color: var(--ink); padding: 0 3px; border-radius: 3px; background: rgba(255,255,255,.06); }
+.device:not([data-layout="desk"]) .help { display: none; }
+
+/* portrait: the six voices on one row, so the whole deck fits under the matrix */
+.device:not([data-layout="desk"]) .waves { grid-template-columns: repeat(6, minmax(0,1fr)); gap: 5px; }
+.device:not([data-layout="desk"]) .wkey { font-size: 8.5px; letter-spacing: .06em; min-height: 46px; padding: 3px 1px; }
+.device:not([data-layout="desk"]) .wkey svg { width: 24px; }
+.device:not([data-layout="desk"]) .lkey { min-height: 46px; }
+.device:not([data-layout="desk"]) .panel { gap: 10px; }
+/* landscape: the deck never grows past the matrix; its page scrolls inside */
+.device[data-layout="land"] { height: calc(var(--m) + 40px); grid-template-rows: auto minmax(0,1fr); }
+.device[data-layout="land"] .deck { min-height: 0; }
+.device[data-layout="land"] .panels { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; border-radius: 11px; scrollbar-width: thin; }
+.device[data-layout="land"] .panel { min-height: 100%; }
+/* compact phones */
+@media (max-width: 420px) {
+  .device { padding: 24px 10px 10px; gap: 10px; border-radius: 18px; }
+  .stage { padding-inline: 10px; padding-block: 8px; }
+  .brand { left: 20px; right: 20px; } .brand small { display: none; }
+  .key.play { min-width: 70px; }
+  .rd-tempo .big { font-size: 21px; }
+  .rd-main { font-size: 11px; }
+}
+.drop { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(4,8,7,.8); color: var(--vfd);
+  font: 600 14px var(--f-disp); letter-spacing: .1em; z-index: 10; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .key { transition: none; } }
+</style>
+
+<div class="stage">
+<main class="device" id="device" data-layout="port">
+  <div class="brand" aria-label="Tenori-Loop"><span>TENORI-LOOP</span><small>16 × 16 MATRIX SEQUENCER</small></div>
+  <span class="screw tl"></span><span class="screw tr"></span><span class="screw bl"></span><span class="screw br"></span>
+
+  <header class="top">
+    <div class="display" aria-live="polite">
+      <div class="rd-main" id="rdMain"><b>A</b> MINOR PENT</div>
+      <div class="rd-tempo"><span class="big" id="rdBpm">112</span><span class="unit">BPM</span></div>
+      <div class="rd-sub"><span id="rdStep">STEP --/16</span><canvas id="scope" aria-hidden="true"></canvas><span class="rd-msg" id="rdMsg"></span></div>
+    </div>
+    <button class="key play" id="btPlay" aria-pressed="false" title="Play / stop (space)"><span class="led"></span><span id="playLabel">PLAY</span></button>
+  </header>
+
+  <section class="matrix" aria-label="Step matrix">
+    <div class="bezel"><canvas id="grid" tabindex="0" aria-label="16 by 16 step matrix. Columns are 16th-note steps, rows are pitches. Click or drag to paint."></canvas></div>
+  </section>
+
+  <section class="deck">
+    <div class="layers" id="layers"></div>
+
+    <nav class="tabs" role="tablist" id="tabs">
+      <button class="tab" role="tab" data-tab="voice"><span class="led"></span>VOICE</button>
+      <button class="tab" role="tab" data-tab="scale"><span class="led"></span>SCALE</button>
+      <button class="tab" role="tab" data-tab="mix"><span class="led"></span>MIX</button>
+      <button class="tab" role="tab" data-tab="file"><span class="led"></span>FILE</button>
+    </nav>
+
+    <div class="panels">
+      <section class="panel" data-tab="voice" role="tabpanel">
+        <h2 id="voiceTitle">LAYER 1 · VOICE</h2>
+        <div class="waves" id="waves"></div>
+        <div class="stepper">
+          <button class="key" id="octDn" aria-label="Octave down">−</button>
+          <div class="lcd"><small>OCTAVE</small><span id="octVal">0</span></div>
+          <button class="key" id="octUp" aria-label="Octave up">+</button>
+        </div>
+        <div class="row">
+          <button class="key" id="btClear" title="Clear this layer (c)">CLEAR</button>
+          <button class="key" id="btRand" title="Random pattern on this layer (r)">RANDOM</button>
+        </div>
+        <div class="fader" id="fLen" role="slider" tabindex="0" aria-label="Note length" data-min="5" data-max="100" data-unit="%"><span class="lab">NOTE LENGTH</span><output></output><div class="slot"><div class="fill"></div><div class="capf"></div></div></div>
+      </section>
+
+      <section class="panel" data-tab="scale" role="tabpanel">
+        <h2>SCALE</h2>
+        <div class="piano" id="piano" role="group" aria-label="Key"></div>
+        <div class="stepper">
+          <button class="key" id="scDn" aria-label="Previous scale">◀</button>
+          <div class="lcd"><small>MODE</small><span id="scVal">Minor Pent</span></div>
+          <button class="key" id="scUp" aria-label="Next scale">▶</button>
+        </div>
+        <p class="note" id="scNotes"></p>
+        <p class="help"><kbd>space</kbd> play · <kbd>1–4</kbd> layer · <kbd>m</kbd> mute · <kbd>c</kbd> clear · <kbd>r</kbd> random · <kbd>↑↓</kbd> tempo · <kbd>←→</kbd> mode · <kbd>[ ]</kbd> key · <kbd>shift+1–8</kbd> load · <kbd>alt+1–8</kbd> store · <kbd>w</kbd> save audio · drop a .tnl file anywhere</p>
+      </section>
+
+      <section class="panel" data-tab="mix" role="tabpanel">
+        <h2>TIME · MIX</h2>
+        <div class="fader" id="fBpm" role="slider" tabindex="0" aria-label="Tempo" data-min="40" data-max="240" data-unit=" BPM"><span class="lab">TEMPO</span><output></output><div class="slot"><div class="fill"></div><div class="capf"></div></div></div>
+        <div class="fader" id="fSwing" role="slider" tabindex="0" aria-label="Swing" data-min="0" data-max="70" data-unit="%"><span class="lab">SWING</span><output></output><div class="slot"><div class="fill"></div><div class="capf"></div></div></div>
+        <div class="fader" id="fEcho" role="slider" tabindex="0" aria-label="Echo" data-min="0" data-max="100" data-unit="%"><span class="lab">ECHO</span><output></output><div class="slot"><div class="fill"></div><div class="capf"></div></div></div>
+        <div class="fader" id="fMaster" role="slider" tabindex="0" aria-label="Master volume" data-min="0" data-max="100" data-unit="%"><span class="lab">MASTER</span><output></output><div class="slot"><div class="fill"></div><div class="capf"></div></div></div>
+      </section>
+
+      <section class="panel" data-tab="file" role="tabpanel">
+        <h2>PATTERNS</h2>
+        <div class="slots" id="slots"></div>
+        <div class="row">
+          <button class="key save" id="btSave" title="Arm, then tap a slot to store the pattern there"><span class="led"></span>STORE</button>
+          <button class="key" id="btCopy" title="Copy the pattern as text (ctrl+c)">COPY</button>
+          <button class="key" id="btText">TEXT</button>
+          <button class="key" id="btOpen" title="Open a .tnl file">OPEN</button>
+        </div>
+        <div id="textBox" hidden>
+          <textarea id="patText" spellcheck="false" aria-label="Pattern as text"></textarea>
+          <div class="row" style="margin-top:8px">
+            <button class="key" id="btLoadText">LOAD THIS TEXT</button>
+            <button class="key" id="btClearAll" title="Clear every layer (shift+c)">CLEAR ALL</button>
+          </div>
+        </div>
+        <input type="file" id="fileIn" accept=".tnl,.txt,text/plain" hidden>
+        <h3 class="subhead">RENDER TO AUDIO</h3>
+        <div class="row">
+          <div class="stepper ex">
+            <button class="key" id="loopsDn" aria-label="Fewer passes">−</button>
+            <div class="lcd"><small>PASSES</small><span id="loopsVal">2×</span></div>
+            <button class="key" id="loopsUp" aria-label="More passes">+</button>
+          </div>
+          <div class="seg">
+            <button class="key" id="btRingOut" title="Start from silence and let the last notes and echoes fade out"><span class="led"></span>RING OUT</button>
+            <button class="key" id="btSeamless" title="Cut exactly on the loop, with the previous pass's echoes already sounding, so the file repeats cleanly"><span class="led"></span>LOOP</button>
+          </div>
+        </div>
+        <button class="key wav" id="btWav" title="Render the pattern to a WAV file (w)"><span class="led"></span>SAVE AUDIO</button>
+        <p class="note" id="exNote"></p>
+      </section>
+    </div>
+  </section>
+</main>
+</div>
+<div class="drop" id="dropHint" hidden>DROP A .TNL PATTERN</div>
+
+<script id="dsp-src">/*__DSP__*/</script>
+<script>
+/*__APP__*/
+</script>
